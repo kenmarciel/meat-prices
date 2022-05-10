@@ -1,0 +1,672 @@
+---
+title: "STAT 684 Project - Univariate Time Series Analysis of U.S. Beef Prices"
+author: "Ken Marciel"
+date: "4/26/2022"
+output: html_document
+---
+
+## Packages
+
+```{r packages, message = F, warning = F}
+library(dplyr)
+library(dygraphs)
+library(forecast)
+library(h2o)
+library(imputeTS)
+library(lubridate)
+library(plotly)
+library(readxl)
+library(TSstudio)
+```
+
+
+## Univariate Time Series Data for U.S. Beef Prices
+
+Data set: U.S. average price of 100% ground beef in dollars per pound
+Period: January 1, 1984, to March 1, 2022
+Seasonally adjusted: No
+Source: Economic Research data from the Federal Reserve Bank of St. Louis (FRED)
+Series: APU0000703112
+Web address: https://fred.stlouisfed.org/series/APU0000703112
+
+```{r}
+## Obtain data
+# set working directory to location of downloaded data files
+path <- 
+"C:/Users/keoka/OneDrive - Texas A&M University/Courses/STAT_684/Project/Data"
+setwd(path)
+bf_df <- read_excel("APU0000703112.xls") # data series for beef prices
+
+## Examine data
+class(bf_df) # table, data frame
+dim(bf_df) # 469 rows, 2 columns
+str(bf_df); summary(bf_df) # tibble with two character variables
+head(bf_df,10+5); tail(bf_df,5) # view first 5 and last 5 observations
+names(bf_df) # variable names: "FRED Graph Observations" and "...2"
+
+## Reformat data
+bf_df <- bf_df[11:469,] # exclude description of data set in first 10 rows
+names(bf_df) <- c("date","beef price") # rename variables
+bf_df[,1] <- as.Date(as.numeric(unlist(bf_df[,1])), # character to numeric date
+                  origin = as.Date("1899-12-30")) # align to Excel origin point
+bf_df[,2] <- round(as.numeric(unlist(bf_df[,2])),3) # character to numeric values
+str(bf_df); summary(bf_df) # tibble with date variable and numeric variable
+which(is.na(bf_df[,2])) # no missing values
+which(bf_df[,2]==0) # missing value was converted to zero value in row 346
+bf_df[341:350,] # view zero value in row 346
+bf_df[346,2] <- NA # convert zero value back to missing (NA) value
+bf_df[341:350,] # view missing value (NA) in row 346
+# impute missing value using linear interpolation
+bf_df[346,2] <- na_interpolation(ts(bf_df))[346,2]
+bf_df[341:350,] # view imputed value in row 346
+
+## Convert data frome to univariate time series object with defined attributes
+bf_ts <- ts(data = bf_df[,2], # series values
+         start = c(1984,1), # time of first observation: January 1, 1984
+         end = c(2022,3), # time of last observation: March 1, 2022
+         frequency = 12) # series frequency
+ts_info(bf_ts) # ts object with 1 variable and 459 observations
+```
+
+This univariate time series data set contains the average monthly values for the price of 100% ground beef in the United States, measured in dollars per pound, from January 1st, 1984, to March 1st, 2022, for a total of 459 months. The missing value for October 1st, 2012, was imputed using linear interpolation.
+
+
+## Exploratory Data Analysis
+
+### Plot of observed values
+
+```{r}
+## Plot time series with "plot" function from R built-in "graphics" package
+plot.ts(bf_ts, # univariate time series object
+        main="U.S. Average Price of 100% Ground Beef",
+        ylab="Cost per Pound",
+        xlab="Years")
+
+## Plot time series with "ts_plot" function from "TSstudio" package
+ts_plot(bf_ts, # univariate time series object
+        title = "U.S. Average Price of 100% Ground Beef",
+        Ytitle = "Cost per Pound",
+        Xtitle = "Years",
+        Xgrid = TRUE,
+        Ygrid = TRUE)
+
+## Plot time series with "dygraph" function from "dygraphs" package
+dygraph(bf_ts,
+        main = "U.S. Average Price of 100% Ground Beef",
+        ylab = "Cost per Pound",
+        xlab = "Years")
+```
+
+
+### Decomposition of time series data
+
+```{r}
+## Classical decomposition of time series
+bf_dc <- decompose(bf_ts) # function from R built-in "stats" package
+ts_decompose(bf_ts) # function from "TSstudio" package
+class(bf_dc); summary(bf_dc) # review attributes of decomposed time series
+plot(bf_dc) # plot decomposed time series
+```
+
+The time series has a growing trend with an embedded cycle, which are both apparent in the observed series. The most recent cycle started just before 2010, near the end of the Great Recession that began in 2008. The seasonal component is not apparent in the observed series. The impact of the COVID-19 pandemic from 2020 to 2022 is conspicuous in both the observed series and the random component. The time series plot can be decomposed to show the trend (including cycle), seasonal, and random components.
+
+
+### Seasonality analysis
+
+```{r}
+## Time series heatmap
+ts_heatmap(bf_ts, title = "Heatmap - US Average Price of Ground Beef")
+
+## Seasonality plots
+ggseasonplot(bf_ts) # seasonal plot
+ggseasonplot(bf_ts,polar = TRUE) # polar plot
+ts_seasonal(bf_ts,type = "normal")
+ts_seasonal(bf_ts,type = "cycle")
+ts_seasonal(bf_ts,type = "box")
+ts_seasonal(bf_ts,type = "all")
+
+## Box plot of the seasonal component of the detrended series
+bf_dt <- bf_ts - decompose(bf_ts)$trend # remove trend
+ts_seasonal(bf_dt,type = "box") # box plot
+```
+
+The heatmap shows evidence of cyclic behavior (across the vertical bars), but not seasonal behavior (across the horizontal bars). All four seasonality plots lack evidence for seasonal behavior in the time series based on the following behavior:
+
+- Horizontal lines in the standard plot
+- Rope appearance in the cycle plot
+- Horizontal pattern across the box plots
+- Circular spiral pattern in the polar plot
+
+
+### Correlation analysis
+
+```{r}
+par(mfrow=c(1,2)) # display two plots in one row
+acf(bf_ts, lag.max = 60) # autocorrelation function
+pacf(bf_ts, lag.max = 60) # partial autocorrelation function
+ts_cor(bf_ts) # acf and pacf
+ts_lags(bf_ts) # lag plots
+ts_lags(bf_ts,lags = c(12,24,36,48)) # seasonal lags
+checkresiduals(bf_ts) # residual analysis
+Box.test(bf_ts,type = "Ljung") # Ljung-Box test of autocorrelation
+```
+
+The correlation of the series with its lags is decaying gradually over time, with no apparent seasonal component.
+
+The lack of seasonality makes sense given that beef is a food eaten year-round in the United States.
+
+
+## Forecasting Strategies
+
+## Linear Regression
+
+The time series data set was partitioned into a training set consisting of the values of the first 447 months, and a test set consisting of the last 12 months.
+
+```{r}
+## Linear regression forecasting model
+h <- 12 # forecast horizon = last 12 observations
+bf_split <- ts_split(bf_ts,sample.out = h) # partition of data set
+bf_train <- bf_split$train # training set
+bf_test <- bf_split$test # test set
+bf_lr1 <- tslm(bf_train ~ season + trend + I(trend^2)) # trained model
+summary(bf_lr1)
+
+## Forecast the next 12 months (testing set)
+fc_lr1 <- forecast(bf_lr1,h=12)
+plot_forecast(fc_lr1)
+
+## Evaluate model performance
+accuracy(fc_lr1,bf_test)
+test_forecast(actual = bf_ts,
+              forecast.obj = fc_lr1,
+              test = bf_test)
+
+## Analyze model residuals
+checkresiduals(fc_lr1)
+```
+
+The model coefficients for the intercept and the trend components are statistically significant at a level of less than 0.001. None of the coefficients for the seasonal components are statistically significant.
+
+The MAPE is 8.35% on the training set and 3.07% on the test set. This imbalance suggests that the predictors may be overfitting the model, consistent with the high adjusted R-squared value of 0.93. Alternatively, the imbalance may be due to the dates of the test set occurring during the global pandemic, which is an event that is unprecedented in the time period of the data set from 1984 to the present, resulting in outliers.
+
+The Ljung-Box test has a statistically-significant p-value, rejecting the null hypothesis that the random component is white noise. This is confirmed by visual analysis of the residuals, which show significant correlation in the model between the series and its lags. This means that the model does not capture a majority of the variation patterns of the series. Therefore, it is not a valid model for consideration. However, we will use its MAPE score of 3.07% as a benchmark to evaluate the performance of the other models that we will train.
+
+
+## Exponential Smoothing Models
+
+Holt-Winters model
+
+The time series data set was partitioned into a training set consisting of the values of the first 447 months, and a test set consisting of the last 12 months.
+
+```{r}
+## Create training and testing partitions
+bf_split <- ts_split(bf_ts,12)
+bf_train <- bf_split$train
+bf_test <- bf_split$test
+
+## Forecast the last 12 months of the series (testing set)
+bf_hw1 <- HoltWinters(bf_train) # train a model
+bf_hw1 # review the parameters and error rate of the trained model
+
+## Forecast the next 12 months (testing set)
+fc_hw1 <- forecast(bf_hw1,h=12)
+plot_forecast(fc_hw1)
+
+## Evaluate model performance
+accuracy(fc_hw1,bf_test)
+test_forecast(actual = bf_ts,
+              forecast.obj = fc_hw1,
+              test = bf_test)
+
+## Analyze model residuals
+checkresiduals(fc_hw1)
+```
+
+The Holt-Winters model is mainly learning from the level and seasonal update (with $\alpha=0.94$ and $\gamma=1$). On the other hand, there is essentially no learning from the trend value ($\beta=0.008$). The accuracy metrics of the model are imbalanced, with an MAPE of 1.9% in the training set and 9.32% in the testing set. This makes sense given the global pandemic and overlapping period of acute inflation occurring from early 2020 to the present, which have no precedent since the beginning of the training set in 1984. This can be seen in the plot of model performance. While the plot shows a good fit to the peak in 2020, most of the error comes from underestimating the following peak in 2021.
+
+Residual analysis suggests that the residuals are white noise, so we can conclude that this is a valid forecasting model.
+
+We will next train the Holt-Winters model using a grid search. We will start with a shallow search with larger increments for the tuning parameters. This will narrow the search area for a deeper search of the tuning parameters. The shallow search will consist of backtesting on the training data set, with an expanding window of six different periods spaced six months apart. Each of the three tuning parameters will be initialized to a range of 0 to 1, with an increment of 0.1.
+
+```{r}
+shallow_grid <- ts_grid(bf_train,
+                        model = "HoltWinters",
+                        periods = 6, # number of backtesting periods
+                        window_length = NULL, # expanding window
+                        window_space = 6, # length between training partitions
+                        window_test = 12, # length of testing partition
+                        # tuning parameters
+                        hyper_params = list(alpha = seq(0,1,0.1),
+                                            beta = seq(0,1,0.1),
+                                            gamma = seq(0,1,0.1)))
+shallow_grid$grid_df[1:10,] # sorted by lowest to highest mean error rate
+```
+
+The table displays the results of the shallow grid search. The models are sorted from best to worst, according to the combination of tuning parameters having the lowest mean error rates. The optimal range of $\alpha$ varies between 0.2 and 0.3, $\beta$ is constant at 0.2, and $\gamma$ is between 0.1 and 0.7. This will help us narrow the ranges of parameter values for a deeper grid search.
+
+```{r}
+deep_grid <- ts_grid(bf_train,
+                     model = "HoltWinters",
+                     periods = 6, # number of backtesting periods
+                     window_length = NULL, # expanding window
+                     window_space = 6, # length between training partitions
+                     window_test = 12, # length of testing partition
+                     # tuning parameters
+                     hyper_params = list(alpha = seq(0.2,0.3,0.01),
+                                         beta = seq(0.15,0.25,0.01),
+                                         gamma = seq(0.1,0.7,0.01)))
+deep_grid$grid_df[1:10,] # sorted from lowest to highest mean error rate
+```
+
+The error range of the top 10 models has dropped slightly compared to the shallow search. The next step is to retrain the HW model using the optimal values of the smoothing parameters from the deep grid search.
+
+```{r}
+## Retrain HW model using optimal parameter values from deep grid search
+bf_hw2 <- HoltWinters(bf_train, # training set
+                          # tuning parameters from deep grid search
+                          alpha = deep_grid$alpha,
+                          beta = deep_grid$beta,
+                          gamma =  deep_grid$gamma)
+bf_hw2 # review the parameters and error rate of the retrained model
+
+## Forecast the next 12 months (testing set)
+fc_hw2 <- forecast(bf_hw2,h=12)
+plot_forecast(fc_hw2)
+
+## Evaluate the model's performance with testing set
+accuracy(fc_hw2,bf_test)
+test_forecast(actual = bf_ts,
+              forecast.obj = fc_hw2,
+              test = bf_test)
+
+## Analyze model residuals
+checkresiduals(fc_hw2)
+```
+
+As you can see from the plot of fitted and forecasted values, the HW model obtained from the grid search underestimated the 2021 peak, with an MAPE score of 10.5% on the test set. Correlation analysis suggests that the random component is not white noise, meaning that this is not a valid model for consideration.
+
+
+## Forecasting with ARIMA Models
+
+### Transforming a non-stationary series into a stationary series
+
+```{r}
+## Plot of raw time series
+ts_plot(bf_ts,
+        title = "Monthly Beef Prices 1984-2022",
+        Ytitle = "Cost per Pound",
+        Xtitle = "Year")
+
+## Log transformation of time series
+ts_plot(log(bf_ts),
+        title = "Beef Price Series - Log Transformation",
+        Ytitle = "Log of Cost per Pound",
+        Xtitle = "Year")
+
+## First order differencing
+ts_plot(diff(bf_ts,lag=1),
+        title = "Beef Price Series - First Differencing",
+        Ytitle = "Differencing of Cost per Pound",
+        Xtitle = "Year")
+
+## First order and seasonal differencing
+ts_plot(diff(diff(bf_ts,lag=1),12),
+        title = "Beef Price Series - First and Seasonal Differencing",
+        Ytitle = "Differencing of Cost per Pound",
+        Xtitle = "Year")
+
+## Log transformation and first order differencing
+ts_plot(diff(log(bf_ts),lag=1),
+        title = "Beef Price Series - First Differencing with Log Transformation",
+        Ytitle = "Differencing/Log of Cost per Pound",
+        Xtitle = "Year")
+
+## Log transformation with first order and seasonal differencing
+ts_plot(diff(diff(log(bf_ts),lag=1),12),
+        title = 
+          "Beef Price Series - First and Seasonal Differencing with Log Transformation",
+        Ytitle = "Differencing/Log of Cost per Pound",
+        Xtitle = "Year")
+```
+
+The log transformation with first-order differencing did the best job of transforming the series to a stationary state and stabilizing the series variation. We will next use this sequence of transformations to manually fit an ARIMA model.
+
+
+### Fitting an ARIMA model with a manual process
+
+Autoregressive Integrated Moving Average (ARIMA)
+
+```{r}
+par(mfrow=c(1,2)) # display two plots in one row
+acf(diff(log(bf_ts))) # autocorrelation function (ACF)
+pacf(diff(log(bf_ts))) # partial autocorrelation function (PACF)
+ts_cor(diff(log(bf_ts))) # acf and pacf
+
+## Train an ARIMA(1,1,0) model
+arima_m1 <- arima(log(bf_ts),order = c(1,1,0))
+summary(arima_m1)
+checkresiduals(arima_m1)
+arima_m1_fc <- forecast(arima_m1,h=12)
+plot_forecast(arima_m1_fc)
+
+## Train an ARIMA(0,1,1) model
+arima_m2 <- arima(log(bf_ts),order = c(0,1,1))
+summary(arima_m2)
+checkresiduals(arima_m2)
+arima_m2_fc <- forecast(arima_m2,h=12)
+plot_forecast(arima_m2_fc)
+
+## Train an ARIMA(1,1,1) model
+arima_m3 <- arima(log(bf_ts),order = c(1,1,1))
+summary(arima_m3)
+checkresiduals(arima_m3)
+arima_m3_fc <- forecast(arima_m3,h=12)
+plot_forecast(arima_m3_fc)
+```
+
+A log transformation was applied to the series, followed by first-order differencing. The transformed series cuts off after the first lag in the plots of both the autocorrelation function (ACF) and the partial autocorrelation function (PACF). There is no apparent seasonality pattern. The lags do not appear to tail off in either plot. Therefore, the corresponding models that were trained are ARIMA(1,1,0), ARIMA(0,1,1), and ARIMA(1,1,1).
+
+All three models have nearly identical performance in terms of error metrics and behavior of the residuals. The ARIMA(1,1,1) had a MAPE score of 3.31%, being the lowest of the three models by one thousandth of one percent. Furthermore, the ARIMA(1,1,1) had the most statistically significant coefficients of the three models. 
+The plot of residuals from the ARIMA(1,1,1) model show a pattern of random oscillation around zero with stable variation. There are a few outliers, with the most obvious one corresponding to the global pandemic from 2020 to 2022. Otherwise, there is apparent nonrandom pattern in the residuals. The ACF plot confirms the lack of significant autocorrelation with lagged values. The density plot shows that the errors are normally distributed. The Ljung-Box test failed to reject the null hypothesis that the lags are not correlated. Therefore, we conclude that the random component of the model is white noise, meaning that ARIMA(1,1,1) is a valid forecasting model for this data series.
+
+
+### Fitting an ARIMA model with an automated tuning process
+
+```{r}
+## Automated ARIMA model tuning using default arguments
+arima_a1 <- auto.arima(bf_train) # tune model using training set
+summary(arima_a1)
+checkresiduals(arima_a1)
+arima_a1_fc <- forecast(arima_a1,h=12)
+plot_forecast(arima_a1_fc)
+
+## Automated ARIMA model tuning using robust search
+arima_a2 <- auto.arima(bf_train, # training set
+                       # limit order of model to six
+                       max.order = 5, # p+q+P+Q=5
+                       d=1, # non-seasonal differencing
+                       D=0, # seasonal differencing
+                       stepwise = FALSE, # search all possible combinations
+                       approximation = FALSE) # for more accurate calculations
+summary(arima_a2)
+checkresiduals(arima_a2)
+
+## Forecast the next 12 months (testing set)
+arima_a2_fc <- forecast(arima_a2,h=12)
+plot_forecast(arima_a2_fc)
+```
+
+With its default parameters, the automated tuning process fitted an ARIMA(0,1,0) model that includes a drift term. With a robust search, the automated tuning process fit a ARIMA(0,1,0)(0,0,2)[12] with drift. Performance of both models are nearly identical in terms of error metrics and residual behavior. Therefore, ARIMA(0,1,0) with drift is the parsimonious model, having an MAPE score of 1.78%, and residual analysis indicating that the random component is white noise.
+
+
+### Linear regression with ARIMA errors
+
+We will next train a linear regression model having the following three predictors: trend, 12-month seasonal lag, and a categorical variable for month of the year. Additionally, the errors will be modeled using the ARIMA procedure.
+
+```{r}
+## Prepare data and create new features for the series
+bf_df$lag12 <- dplyr::lag(bf_df$`beef price`,n=12) # seasonal lag
+# seasonal component
+bf_df$month <- factor(month(bf_df$date,label=TRUE),ordered = FALSE)
+# marginal change in series from moving in time by one month
+bf_df$trend <- 1:nrow(bf_df)
+
+## Split the series into training and testing partitions
+train_df <- bf_df[1:(nrow(bf_df)-12),]
+test_df <- bf_df[(nrow(bf_df)-12+1):nrow(bf_df),]
+
+## Train linear regression model with ARIMA errors using xreg argument
+arima_e1 <- auto.arima(bf_train, # training set
+                       # change month from categorical to binary variable
+                       # drop first column (category)
+                       xreg = cbind(model.matrix(~month,train_df)[,-1],
+                                    train_df$trend,
+                                    train_df$lag12),
+                       seasonal = TRUE, # search seasonal and non-seasonal models
+                       stepwise = FALSE, # search all possible combinations
+                       approximation = FALSE) # for more accurate calculations
+summary(arima_e1)
+checkresiduals(arima_e1)
+
+## Forecast the next 12 months (testing set)
+arima_e1_fc <- forecast(arima_e1,xreg = cbind(model.matrix(~month,test_df)[,-1],
+                                              test_df$trend,
+                                              test_df$lag12))
+plot_forecast(arima_e1_fc)
+```
+
+The linear regression model with ARIMA errors has an MAPE score of 1.78%, and the correlation analysis indicates that the random component is white noise.
+
+
+## Forecasting with Machine Learning Models
+
+We will next use several machine learning regression models. Given that the purpose is to obtain a short-term forecast of 12 months, using the entire series may add noise to the model from previous cycles. Therefore, we will instead subset the series to only include the most recent cycle, beginning in January 2010, following the end of the 2008 economic crisis.
+
+```{r}
+## Subset time series object and transform to a data frame
+bf_df_st <- ts_to_prophet(window(bf_ts,start=c(2010,1)))
+
+## Examine data subset
+class(bf_df_st); dim(bf_df_st) # data frame with 147 rows, 2 columns
+str(bf_df_st); summary(bf_df_st) # date variable and numeric variable
+head(bf_df_st,5); tail(bf_df_st,5) # view first 5 and last 5 observations
+names(bf_df_st) # variable names: "ds" and "y"
+
+## Reformat data
+names(bf_df_st) <- c("date","y") # rename variables
+head(bf_df_st,5) # view first five observations
+
+## Plot time series
+ts_plot(bf_df_st, # data frame
+        title = "US Average Beef Price Since January 2010",
+        Ytitle = "Cost per Pound",
+        Xtitle = "Year")
+```
+
+
+### Feature engineering
+
+We will next create new features to be used as informative input for the model.
+
+```{r}
+## Create new features and add to time series data frame 
+bf_df_st <- bf_df_st %>% 
+  # categorical variable for month of year to capture seasonality
+  mutate(month=factor(month(date,label = TRUE),ordered = FALSE),
+         # variable for seasonal lag of 12 months
+         lag12=lag(y,n=12)) %>% filter(!is.na(lag12))
+bf_df_st$trend <- 1:nrow(bf_df_st) # trend component
+bf_df_st$trend_sqr <- bf_df_st$trend^2 # second-degree polynomial of trend
+str(bf_df_st); head(bf_df_st) # view structure of data frame with new features
+```
+
+
+### Training, testing, and model evaluation
+
+To allow for model comparison, follow the same procedure used for the previous models to create the training and testing partitions. It will also be necessary to create inputs for the forecast itself.
+
+```{r}
+## Create training and testing partitions of the data subset
+h <- 12 # forecast horizon = 12 months
+train_df_st <- bf_df_st[1:(nrow(bf_df_st)-h),] # exclude last 12 months
+test_df_st <- bf_df_st[(nrow(bf_df_st)-h+1):nrow(bf_df_st),] # last 12 months
+
+## Create data frame with the dates of the following 12 months
+fc_df_st <- data.frame(
+  date=seq.Date(from = max(bf_df_st$date)+months(1),length.out = h,by="month"),
+  # trend component
+  trend=seq(from=max(bf_df_st$trend)+1,length.out=h,by=1))
+
+## Build the rest of the features
+fc_df_st$trend_sqr <- fc_df_st$trend^2 # second-degree polynomial of trend
+# categorical variable for month of year to capture seasonality
+fc_df_st$month <- factor(month(fc_df_st$date,label = TRUE),ordered = FALSE)
+# extract last 12 observations and assign as future lags of the series
+fc_df_st$lag12 <- tail(bf_df_st$y,12)
+str(fc_df_st); head(fc_df_st) # view structure of data frame with new features
+```
+
+
+### Model benchmark
+
+We will use a linear regression model as a benchmark for the machine learning models.
+
+```{r}
+## Train the linear regression model on the training partition
+bf_lr2 <- lm(y ~ month + lag12 + trend + trend_sqr, data = train_df_st)
+summary(bf_lr2) # review the model details
+
+## Predict the corresponding values of the series on the testing partition
+test_df_st$yhat <- predict(bf_lr2,newdata = test_df_st)
+
+## Evaluate the performance of the model on the testing partition
+mape_lr2 <- mean(abs(test_df_st$y-test_df_st$yhat)/test_df_st$y)
+mape_lr2
+
+## Analyze model residuals
+checkresiduals(bf_lr2)
+```
+
+The residual plot shows a nonrandom pattern. The correlation plot shows that the series is dependent on its lags. The density plot shows a right-skewed distribution. Therefore, it is not a valid forecasting model. However, we will use its MAPE score of 10.04% as a benchmark for the performance of the machine learning models.
+
+
+### Starting an h2o cluster
+
+```{r}
+## Set the in-memory cluster with the H2O function
+h2o.init() # provides information about the cluster's setup
+
+## Transform data frame objects to h2o clusters
+train_h <- as.h2o(train_df_st) # training set
+test_h <- as.h2o(test_df_st) # test set
+forecast_h <- as.h2o(fc_df_st) # future values of series inputs
+
+## Label the names of the independent and dependent variables for convenience
+x <- c("month","lag12","trend","trend_sqr")
+y <- "y"
+```
+
+Now that the data has been loaded into the working cluster, we can begin the training process.
+
+
+### Forecasting with the Random Forest model
+
+Build a forecasting model with the Random Forest (RF) algorithm.
+
+```{r}
+## Random Forest model with default settings
+bf_rf1 <- h2o.randomForest(training_frame = train_h, # training set
+                          nfolds = 5, # number of folders for CV training
+                          x=x, # character vector for independent variable names
+                          y=y, # string for name of dependent variable
+                          ntrees = 500, # number of trees
+                          # number of rounds to use before stopping training
+                          stopping_rounds = 10,
+                          # determine when model should stop and build new trees
+                          stopping_metric = "RMSE", # error metric
+                          # score during each iteration of model training
+                          score_each_iteration = TRUE,
+                          # minimal improvement to continue training process
+                          stopping_tolerance = 0.0001,
+                          seed = 1234)
+
+## View contribution of model inputs
+bf_rf1@model$model_summary # review parameters of model performance
+h2o.varimp_plot(bf_rf1) # each variable ranked on a scale from 0 to 1
+
+## Plot the learning process of the model as a function of the number of trees
+tree_score <- bf_rf1@model$scoring_history$training_rmse
+plot_ly(x=seq_along(tree_score),y=tree_score,
+        type = "scatter",mode="line")%>%
+  layout(title="The Trained Model Score History",
+         yaxis=list(title="RMSE"),
+         xaxis=list(title="Number of Trees"))
+
+## Measure the model's performance on the testing partition
+test_h$pred_rf <- h2o.predict(bf_rf1,test_h) # predict corresponding values
+test_1 <- as.data.frame(test_h) # transfer to a data frame object
+# calculate MAPE score of RF model on test partition
+mape_rf1 <- mean(abs(test_1$y-test_1$pred_rf)/test_1$y)
+mape_rf1 # output MAPE score
+
+## Visualize results and compare prediction to actual and baseline predictions
+plot_ly(data = test_1)%>% # use test set data frame as input
+  add_lines(x=~date,y=~y,name="Actual")%>%
+  add_lines(x=~date,y=~yhat,name="Linear Regression",line=list(dash="dot"))%>%
+  add_lines(x=~date,y=~pred_rf,name="Random Forest",
+            line=list(dash="dash"))%>%
+  layout(title=
+           "Average Beef Price - Actual vs. Prediction (Random Forest)",
+         yaxis=list(title="Cost per Pound"),
+         xaxis=list(title="Month"))
+```
+
+The Random Forest model with its default settings has an MAPE rate of 11.48%, which is higher than the 10.04% error rate of the benchmark model.
+
+
+### Forecasting with the GBM model
+
+```{r}
+## Train the GBM model with the same input data used previously
+bf_gb1 <- h2o.gbm(training_frame = train_h, # training set
+                  nfolds = 5, # number of folders for CV training
+                  x=x, # character vector for independent variable names
+                  y=y, # string for name of dependent variable,
+                  max_depth = 20, # set the maximum tree depth
+                  distribution = "gaussian",
+                  ntrees = 500, # number of trees
+                  learn_rate = 0.1, # default value between 0 and 1
+                  # score the model during each iteration of training
+                  score_each_iteration = TRUE)
+
+## Review the rank of the importance of the model's variables
+bf_rf1@model$model_summary # review parameters of model performance
+h2o.varimp_plot(bf_gb1) # each variable ranked on a scale from 0 to 1
+
+## Plot the learning process of the model as a function of the number of trees
+tree_score <- bf_gb1@model$scoring_history$training_rmse
+plot_ly(x=seq_along(tree_score),y=tree_score,
+        type = "scatter",mode="line")%>%
+  layout(title="The Trained Model Score History",
+         yaxis=list(title="RMSE"),
+         xaxis=list(title="Number of Trees"))
+
+## Test the model's performance on the testing set
+test_h$pred_gbm <- h2o.predict(bf_gb1,test_h) # predict corresponding values
+test_1 <- as.data.frame(test_h) # transfer to a data frame object
+# calculate MAPE score of GBM model on test partition
+mape_gb1 <- mean(abs(test_1$y-test_1$pred_gbm)/test_1$y)
+mape_gb1 # output MAPE score
+
+## Visualize results and compare prediction to actual and baseline predictions
+plot_ly(data = test_1)%>% # use test set data frame as input
+  add_lines(x=~date,y=~y,name="Actual")%>%
+  add_lines(x=~date,y=~yhat,name="Linear Regression",line=list(dash="dot"))%>%
+  add_lines(x=~date,y=~pred_gbm,name="Gradient Boosting Machine",
+            line=list(dash="dash"))%>%
+  layout(title=
+           "Average Beef Price - Actual vs. Prediction (Gradient Boosting Machine)",
+         yaxis=list(title="Cost per Pound"),
+         xaxis=list(title="Month"))
+```
+
+The Gradient Boosting Machine model with its default settings has an MAPE rate of 10.18%, which is higher than the 10.04% error rate of the benchmark model.
+
+
+### Prediction for March 2023
+
+```{r}
+## Linear regression models
+data.frame(forecast(bf_lr1,h=24))[24,] # 4.819455
+
+## Exponential smoothing models
+data.frame(forecast(bf_hw1,h=24))[24,] # 4.228599
+data.frame(forecast(bf_hw2,h=24))[24,] # 3.827890
+
+## ARIMA models
+data.frame(forecast(arima_m1,h=24))[24,] # 1.557115
+data.frame(forecast(arima_m2,h=24))[24,] # 1.556631
+data.frame(forecast(arima_m3,h=24))[24,] # 1.556562
+data.frame(forecast(arima_a1,h=24))[24,] # 4.190090
+data.frame(forecast(arima_a2,h=24))[24,] # 4.211082
+```

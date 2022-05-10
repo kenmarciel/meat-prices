@@ -1,0 +1,154 @@
+---
+title: "STAT 684 Project - Multivariate Time Series Analysis of U.S. Beef and Chicken Prices"
+author: "Ken Marciel"
+date: "4/26/2022"
+output: html_document
+---
+
+## Packages
+
+```{r packages, message = F, warning = F}
+library(dplyr)
+library(dygraphs)
+library(forecast)
+library(h2o)
+library(imputeTS)
+library(lubridate)
+library(plotly)
+library(readxl)
+library(TSstudio)
+```
+
+```{r}
+## Obtain data
+# set working directory to location of downloaded data files
+path <- 
+"C:/Users/keoka/OneDrive - Texas A&M University/Courses/STAT_684/Project/Data"
+setwd(path)
+bf_df <- read_excel("APU0000703112.xls") # data series for beef prices
+
+## Examine data
+class(bf_df) # table, data frame
+dim(bf_df) # 469 rows, 2 columns
+str(bf_df); summary(bf_df) # tibble with two character variables
+head(bf_df,10+5); tail(bf_df,5) # view first 5 and last 5 observations
+names(bf_df) # variable names: "FRED Graph Observations" and "...2"
+
+## Reformat data
+bf_df <- bf_df[11:469,] # exclude description of data set in first 10 rows
+names(bf_df) <- c("date","beef price") # rename variables
+bf_df[,1] <- as.Date(as.numeric(unlist(bf_df[,1])), # character to numeric date
+                  origin = as.Date("1899-12-30")) # align to Excel origin point
+bf_df[,2] <- round(as.numeric(unlist(bf_df[,2])),3) # character to numeric values
+str(bf_df); summary(bf_df) # tibble with date variable and numeric variable
+which(is.na(bf_df[,2])) # no missing values
+which(bf_df[,2]==0) # missing value was converted to zero value in row 346
+bf_df[341:350,] # view zero value in row 346
+bf_df[346,2] <- NA # convert zero value back to missing (NA) value
+bf_df[341:350,] # view missing value (NA) in row 346
+# impute missing value using linear interpolation
+bf_df[346,2] <- na_interpolation(ts(bf_df))[346,2]
+bf_df[341:350,] # view imputed value in row 346
+
+## Convert data frome to univariate time series object with defined attributes
+bf_ts <- ts(data = bf_df[,2], # series values
+         start = c(1984,1), # time of first observation: January 1, 1984
+         end = c(2022,3), # time of last observation: March 1, 2022
+         frequency = 12) # series frequency
+ts_info(bf_ts) # ts object with 1 variable and 459 observations
+```
+
+
+```{r}
+## Obtain data
+# set working directory to location of downloaded data files
+path = 
+"C:/Users/keoka/OneDrive - Texas A&M University/Courses/STAT_684/Project/Data"
+setwd(path)
+ch_df = read_excel("APU0000706111.xls") # data series for chicken prices
+
+## Examine data
+class(ch_df) # table, data frame
+dim(ch_df) # 517 rows, 2 columns
+str(ch_df); summary(ch_df) # tibble with two character variables
+head(ch_df,10+5); tail(ch_df,5) # view first 5 and last 5 observations
+names(ch_df) # variable names: "FRED Graph Observations" and "...2"
+
+## Reformat data
+ch_df <- ch_df[11:517,] # exclude description of data set in first 10 rows
+names(ch_df) <- c("date","chicken price") # rename variables
+ch_df[,1] <- as.Date(as.numeric(unlist(ch_df[,1])), # character to numeric date
+                  origin = as.Date("1899-12-30")) # align to Excel origin point
+ch_df[,2] <- round(as.numeric(unlist(ch_df[,2])),3) # character to numeric values
+str(ch_df); summary(ch_df) # tibble with date variable and numeric variable
+which(is.na(ch_df[,2])) # no missing values
+which(ch_df[,2]==0) # missing value was converted to zero value in row 485
+ch_df[481:490,] # view zero value in row 485
+ch_df[485,2] <- NA # convert zero value back to missing (NA) value
+ch_df[481:490,] # view missing value (NA) in row 485
+# impute missing value using linear interpolation
+ch_df[485,2] <- na_interpolation(ts(ch_df))[485,2]
+ch_df[481:490,] # view imputed value in row 485
+
+## Convert data frome to univariate time series object with defined attributes
+ch_ts <- ts(data = ch_df[,2], # series values
+         start = c(1980,1), # time of first observation: January 1, 1980
+         end = c(2022,3), # time of last observation: March 1, 2022
+         frequency = 12) # series frequency
+ts_info(ch_ts) # ts object with 1 variable and 507 observations
+```
+
+
+## Multivariate time series data for U.S. beef and chicken prices
+
+```{r}
+## Create multivariate time series object
+bfch_ts <- ts(data = cbind(bf_df$`beef price`, # series values
+                           ch_df$`chicken price`[49:507]),
+              # minimum common date
+              start = c(year(min(bf_df$date)), month(min(bf_df$date))),
+              frequency = 12) # series frequency
+ts_info(bfch_ts) # mts object with 2 variable and 459 observations
+```
+
+
+## Exploratory data analysis
+
+```{r}
+## Plot time series with "plot" function from R built-in "graphics" package
+plot.ts(bfch_ts, # multivariate time series object
+        plot.type = "multiple",
+        main = "U.S. Average Price of Beef vs. Chicken",
+        ylab = c("Beef","Chicken"),
+        xlab = "Years")
+plot.ts(bfch_ts, # multivariate time series object
+        plot.type = "single",
+        main = "U.S. Average Price of Beef vs. Chicken",
+        ylab = c("Beef","Chicken"),
+        xlab = "Years")
+
+## Plot time series with "ts_plot" function from "TSstudio" package
+ts_plot(bfch_ts, # multivariate time series object
+        type = "multiple",
+        title = "U.S. Average Price of Beef vs. Chicken",
+        Ytitle = "Cost per Pound",
+        Xtitle = "Years",
+        Xgrid = TRUE,
+        Ygrid = TRUE)
+ts_plot(bfch_ts, # multivariate time series object
+        type = "single",
+        title = "U.S. Average Price of Beef vs. Chicken",
+        Ytitle = "Cost per Pound",
+        Xtitle = "Years",
+        Xgrid = TRUE,
+        Ygrid = TRUE)
+
+## Plot time series with "dygraph" function from "dygraphs" package
+dygraph(bfch_ts, # multivariate time series object
+        main = "U.S. Average Price of Beef vs. Chicken") %>%
+  dyAxis("y",label = "Cost per Pound") %>%
+  dySeries("Series 1",axis='y',label = "Ground Beef", color="red") %>%
+  dySeries("Series 2",axis = 'y',label = "Whole Chicken",color = "orange") %>%
+  dyLegend()
+```
+
