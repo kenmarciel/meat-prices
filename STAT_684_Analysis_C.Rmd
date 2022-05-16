@@ -7,7 +7,7 @@ output: html_document
 
 ## Packages
 
-```{r packages, message = F, warning = F}
+```{r packages, message=FALSE, warning=FALSE}
 library(dplyr)
 library(dygraphs)
 library(forecast)
@@ -19,7 +19,17 @@ library(readxl)
 library(TSstudio)
 ```
 
-```{r}
+
+## Univariate Time Series Data for U.S. Beef Prices
+
+Data set: U.S. average price of 100% ground beef in dollars per pound
+Period: January 1, 1984, to March 1, 2022
+Seasonally adjusted: No
+Source: Economic Research data from the Federal Reserve Bank of St. Louis (FRED)
+Series: APU0000703112
+Web address: https://fred.stlouisfed.org/series/APU0000703112
+
+```{r beefDataSet, include=FALSE}
 ## Obtain data
 # set working directory to location of downloaded data files
 path <- 
@@ -59,7 +69,16 @@ ts_info(bf_ts) # ts object with 1 variable and 459 observations
 ```
 
 
-```{r}
+## Univariate time series data for U.S. chicken prices
+
+Data set: U.S. average price of fresh, whole chicken in dollars per pound
+Period: January 1, 1980, to March 1, 2022
+Seasonally adjusted: No
+Source: Economic Research data from the Federal Reserve Bank of St. Louis (FRED)
+Series: APU0000706111
+Web address: https://fred.stlouisfed.org/series/APU0000706111
+
+```{r chickenDataSet, include=FALSE}
 ## Obtain data
 # set working directory to location of downloaded data files
 path = 
@@ -101,7 +120,7 @@ ts_info(ch_ts) # ts object with 1 variable and 507 observations
 
 ## Multivariate time series data for U.S. beef and chicken prices
 
-```{r}
+```{r multivariateDataSet, include=FALSE}
 ## Create multivariate time series object
 bfch_ts <- ts(data = cbind(bf_df$`beef price`, # series values
                            ch_df$`chicken price`[49:507]),
@@ -114,7 +133,7 @@ ts_info(bfch_ts) # mts object with 2 variable and 459 observations
 
 ## Exploratory data analysis
 
-```{r}
+```{r explore, echo=FALSE}
 ## Plot time series with "plot" function from R built-in "graphics" package
 plot.ts(bfch_ts, # multivariate time series object
         plot.type = "multiple",

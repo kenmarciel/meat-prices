@@ -1,5 +1,5 @@
 ---
-title: "STAT 684 Project - Univariate Time Series Analysis of U.S. Chicken Prices"
+title: "STAT 684 - Statistical Consulting"
 author: "Ken Marciel"
 date: "4/26/2022"
 output: html_document
@@ -7,7 +7,7 @@ output: html_document
 
 ## Packages
 
-```{r packages, message = F, warning = F}
+```{r packages, message=FALSE, warning=FALSE}
 library(dplyr)
 library(dygraphs)
 library(forecast)
@@ -29,7 +29,7 @@ Source: Economic Research data from the Federal Reserve Bank of St. Louis (FRED)
 Series: APU0000706111
 Web address: https://fred.stlouisfed.org/series/APU0000706111
 
-```{r}
+```{r dataSet, include=FALSE}
 ## Obtain data
 # set working directory to location of downloaded data files
 path = 
@@ -75,7 +75,7 @@ This univariate time series data set contains the average monthly values for the
 
 ### Plot of observed values
 
-```{r}
+```{r explore, echo=FALSE}
 ## Plot time series with "plot" function from R built-in "graphics" package
 plot.ts(ch_ts, # univariate time series object
         main="U.S. Average Price of Whole Chicken",
@@ -100,7 +100,7 @@ dygraph(ch_ts,
 
 ### Decomposition of time series data
 
-```{r}
+```{r decomposition, echo=FALSE}
 ## Classical decomposition of time series
 ch_dc <- decompose(ch_ts) # function from R built-in "stats" package
 ts_decompose(ch_ts) # function from "TSstudio" package
@@ -113,7 +113,7 @@ The time series has a growing trend with an embedded cycle, which are both appar
 
 ### Seasonality analysis
 
-```{r}
+```{r seasonality, echo=FALSE, warning=FALSE}
 ## Time series heatmap
 ts_heatmap(ch_ts, title = "Heatmap - US Average Price of Whole Chicken")
 
@@ -140,7 +140,7 @@ The heatmap shows evidence of cyclic behavior (across the vertical bars), but no
 
 ### Correlation analysis
 
-```{r}
+```{r correlation, echo=FALSE, warning=FALSE}
 par(mfrow=c(1,2)) # display two plots in one row
 acf(ch_ts, lag.max = 60) # autocorrelation function
 pacf(ch_ts, lag.max = 60) # partial autocorrelation function
@@ -158,9 +158,11 @@ The lack of seasonality makes sense given that beef is a food eaten year-round i
 
 ## Forecasting Strategies
 
-## Forecasting with Linear Regression
+### Linear Regression
 
-```{r}
+The time series data set was partitioned into a training set consisting of the values of the first 495 months, and a test set consisting of the last 12 months.
+
+```{r partition, echo=FALSE}
 ## Linear regression forecasting model
 h <- 12 # forecast horizon = last 12 observations
 ch_split <- ts_split(ch_ts,sample.out = h) # partition of data set
@@ -190,13 +192,13 @@ The MAPE is 4.70% on the training set and 6.51% on the test set.
 The adjusted R-squared has a value of 0.94, which suggests that most of the variation is explained by the model. However, analysis of residuals shows significant correlation in the model between the series and its lags. This is confirmed by the statistically-significant p-value of the Ljung-Box test, rejecting the null hypothesis that the random component is white noise. This means that the model does not capture a majority of the variation patterns of the series. Therefore, it is not a valid model for consideration. However, we will use its MAPE score of 6.51% as a benchmark to evaluate the performance of the other models that we will train.
 
 
-## Forecasting with Exponential Smoothing Models
+### Exponential Smoothing Models
 
 Holt-Winters model
 
 The time series data set was partitioned into a training set consisting of the values of the first 495 months, and a test set consisting of the last 12 months.
 
-```{r}
+```{r holtWinters, echo=FALSE, warning=FALSE}
 ## Create training and testing partitions
 ch_split <- ts_split(ch_ts,12)
 ch_train <- ch_split$train
@@ -226,7 +228,7 @@ The MAPE score is 1.88% in the training set and 4.62% in the testing set. Howeve
 
 We will next train the Holt-Winters model using a grid search. We will start with a shallow search with larger increments for the tuning parameters. This will narrow the search area for a deeper search of the tuning parameters. The shallow search will consist of backtesting on the training data set, with an expanding window of six different periods spaced six months apart. Each of the three tuning parameters will be initialized to a range of 0 to 1, with an increment of 0.1.
 
-```{r}
+```{r hwShallowGrid, echo=FALSE, warning=FALSE}
 shallow_grid <- ts_grid(ch_train,
                         model = "HoltWinters",
                         periods = 6, # number of backtesting periods
@@ -242,7 +244,7 @@ shallow_grid$grid_df[1:10,] # sorted by lowest to highest mean error rate
 
 The table displays the results of the shallow grid search. The models are sorted from best to worst, according to the combination of tuning parameters having the lowest mean error rates. The optimal range of $\alpha$ varies between 0.2 and 0.3, $\beta$ is constant at 0.2, and $\gamma$ is between 0.1 and 0.7. This will help us narrow the ranges of parameter values for a deeper grid search.
 
-```{r}
+```{r hwDeepGrid, echo=FALSE}
 deep_grid <- ts_grid(ch_train,
                      model = "HoltWinters",
                      periods = 6, # number of backtesting periods
@@ -258,7 +260,7 @@ deep_grid$grid_df[1:10,] # sorted from lowest to highest mean error rate
 
 The error range of the top 10 models has dropped slightly compared to the shallow search. The next step is to retrain the HW model using the optimal values of the smoothing parameters from the deep grid search.
 
-```{r}
+```{r hwRetrain, echo=FALSE, warning=FALSE}
 ## Retrain HW model using optimal parameter values from deep grid search
 ch_hw2 <- HoltWinters(ch_train, # training set
                           # tuning parameters from deep grid search
@@ -288,7 +290,7 @@ As you can see from the plot of fitted and forecasted values, the HW model obtai
 
 ### Transforming a non-stationary series into a stationary series
 
-```{r}
+```{r stationarity, echo=FALSE}
 ## Plot of raw time series
 ts_plot(ch_ts,
         title = "Monthly Chicken Prices 1980-2022",
@@ -334,7 +336,7 @@ The log transformation with first-order differencing appears to do the best job 
 
 Autoregressive Integrated Moving Average (ARIMA)
 
-```{r}
+```{r manualARIMA, echo=FALSE}
 par(mfrow=c(1,2)) # display two plots in one row
 acf(diff(log(ch_ts)),lag.max = 60) # autocorrelation function (ACF)
 pacf(diff(log(ch_ts)),lag.max = 60) # partial autocorrelation function (PACF)
@@ -353,7 +355,7 @@ A log transformation was applied to the series, followed by first-order differen
 
 ### Fitting an ARIMA model with an automated tuning process
 
-```{r}
+```{r autoARIMA, echo=FALSE}
 ## Automated ARIMA model tuning using default arguments
 arima_a1 <- auto.arima(ch_train) # tune model using training set
 summary(arima_a1)
@@ -384,7 +386,7 @@ With its default parameters, the automated tuning process fitted an ARIMA(2,1,2)
 
 We will next train a linear regression model having the following three predictors: trend, 12-month seasonal lag, and a categorical variable for month of the year. Additionally, the errors will be modeled using the ARIMA procedure.
 
-```{r}
+```{r errorARIMA, echo=FALSE}
 ## Prepare data and create new features for the series
 ch_df$lag12 <- dplyr::lag(ch_df$`chicken price`,n=12) # seasonal lag
 # seasonal component
@@ -423,7 +425,7 @@ The linear regression model with ARIMA errors has an MAPE score of 1.64%, and th
 
 We will next use several machine learning regression models. Given that the purpose is to obtain a short-term forecast of 12 months, using the entire series may add noise to the model from previous cycles. Therefore, we will instead subset the series to only include the most recent cycle, beginning in January 2010, following the end of the 2008 economic crisis.
 
-```{r}
+```{r subsetData, echo=FALSE}
 ## Subset time series object and transform to a data frame
 ch_df_st <- ts_to_prophet(window(ch_ts,start=c(2010,1)))
 
@@ -449,7 +451,7 @@ ts_plot(ch_df_st, # data frame
 
 We will next create new features to be used as informative input for the model.
 
-```{r}
+```{r featureEngineering, echo=FALSE}
 ## Create new features and add to time series data frame 
 ch_df_st <- ch_df_st %>% 
   # categorical variable for month of year to capture seasonality
@@ -466,7 +468,7 @@ str(ch_df_st); head(ch_df_st) # view structure of data frame with new features
 
 To allow for model comparison, follow the same procedure used for the previous models to create the training and testing partitions. It will also be necessary to create inputs for the forecast itself.
 
-```{r}
+```{r mlPartition, echo=FALSE}
 ## Create training and testing partitions of the data subset
 h <- 12 # forecast horizon = 12 months
 train_df_st <- ch_df_st[1:(nrow(ch_df_st)-h),] # exclude last 12 months
@@ -492,7 +494,7 @@ str(fc_df_st); head(fc_df_st) # view structure of data frame with new features
 
 We will use a linear regression model as a benchmark for the machine learning models.
 
-```{r}
+```{r benchmark, echo=FALSE}
 ## Train the linear regression model on the training partition
 ch_lr2 <- lm(y ~ month + lag12 + trend + trend_sqr, data = train_df_st)
 summary(ch_lr2) # review the model details
@@ -513,7 +515,7 @@ The residual plot shows a nonrandom pattern. The correlation plot shows that the
 
 ### Starting an h2o cluster
 
-```{r}
+```{r h2oCluster, echo=FALSE, message=FALSE, warning=FALSE}
 ## Set the in-memory cluster with the H2O function
 h2o.init() # provides information about the cluster's setup
 
@@ -534,7 +536,7 @@ Now that the data has been loaded into the working cluster, we can begin the tra
 
 Build a forecasting model with the Random Forest (RF) algorithm.
 
-```{r}
+```{r randomForest, echo=FALSE, message=FALSE, warning=FALSE}
 ## Random Forest model with default settings
 ch_rf1 <- h2o.randomForest(training_frame = train_h, # training set
                           nfolds = 5, # number of folders for CV training
@@ -587,7 +589,7 @@ The Random Forest model with its default settings has an MAPE rate of 0.07%.
 
 ### Forecasting with the GBM model
 
-```{r}
+```{r gradientBoostingMachine, echo=FALSE, message=FALSE, warning=FALSE}
 ## Train the GBM model with the same input data used previously
 ch_gb1 <- h2o.gbm(training_frame = train_h, # training set
                   nfolds = 5, # number of folders for CV training
@@ -634,9 +636,9 @@ plot_ly(data = test_1)%>% # use test set data frame as input
 The Gradient Boosting Machine model with its default settings has an MAPE rate of 0.09%, which is higher than the 10.04% error rate of the benchmark model.
 
 
-### Prediction for March 2023
+### Prediction for March 1, 2023
 
-```{r}
+```{r predictions}
 ## Linear regression models
 data.frame(forecast(ch_lr1,h=24))[24,] # 1.676747 benchmark
 
@@ -645,7 +647,7 @@ data.frame(forecast(ch_hw1,h=24))[24,] # 1.606867
 data.frame(forecast(ch_hw2,h=24))[24,] # 1.581002
 
 ## ARIMA models
-data.frame(forecast(arima_m1,h=24))[24,] # 0.5446472
+data.frame(forecast(arima_m1,h=12))[12,] # 0.5446472
 data.frame(forecast(arima_a1,h=24))[24,] # 1.613422
 data.frame(forecast(arima_a2,h=24))[24,] # 1.618961
 ```
